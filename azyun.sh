@@ -37,25 +37,24 @@ show_spinner() {
     printf "    \b\b\b\b"
 }
 
-# 进度条展示
-progress_bar() {
-    local duration=$1
+# 进度条函数
+show_progress() {
+    local duration=0.1
     local width=50
     local progress=0
     while [ $progress -le 100 ]; do
         local count=$(($width * $progress / 100))
         local spaces=$((width - count))
         
-        printf "\r[${BLUE}"
-        printf "%${count}s" '' | tr ' ' '█'
-        printf "${NC}"
-        printf "%${spaces}s" '' | tr ' ' '░'
-        printf "] ${progress}%%"
+        echo -ne "\r["
+        printf "%${count}s" | tr ' ' '#'
+        printf "%${spaces}s" | tr ' ' '-'
+        echo -ne "] ${progress}%"
         
         progress=$((progress + 2))
         sleep $duration
     done
-    printf "\n"
+    echo
 }
 
 # 主程序
