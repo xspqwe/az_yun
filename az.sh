@@ -156,6 +156,11 @@ write_step "正在邀请用户: $email"
 # 获取 Microsoft Graph 访问令牌
 graph_token=$(az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv)
 
+if [ -z "$graph_token" ]; then
+    write_error "无法获取Microsoft Graph访问令牌"
+    exit 1
+fi
+
 # 发送邀请
 invitation_json="{\"invitedUserEmailAddress\":\"$email\",\"inviteRedirectUrl\":\"https://portal.azure.com\",\"sendInvitationMessage\":true,\"invitedUserType\":\"Guest\"}"
 invitation_response=$(curl -s -X POST "https://graph.microsoft.com/v1.0/invitations" \
@@ -163,38 +168,74 @@ invitation_response=$(curl -s -X POST "https://graph.microsoft.com/v1.0/invitati
     -H "Content-Type: application/json" \
     -d "$invitation_json")
 
-if echo "$invitation_response" | grep -q "invitedUser"; then
+# 检查响应是否包含错误
+if echo "$invitation_response" | grep -q "error"; then
+    write_error "邀请用户失败"
+    write_info "错误详情: $(echo "$invitation_response" | grep -o '"message":"[^"]*"' | cut -d'"' -f4)"
+else
     write_success "邀请已发送"
     
-    # 获取用户 ObjectId
-    user_id=$(echo "$invitation_response" | grep -o '"id":"[^"]*"' | grep -o '[^"]*$' | head -1)
+    # 从响应中提取用户ID
+    user_id=$(echo "$invitation_response" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
     
+    # 如果无法从响应中获取用户ID，则尝试使用Azure CLI查询
     if [ -z "$user_id" ]; then
         write_info "等待用户信息同步..."
-        sleep 10  # 等待用户创建完成
-        user_id=$(az ad user show --id $email --query id -o tsv)
+        # 增加等待时间，以便Azure AD完成用户同步
+        sleep 30
+        
+        # 重试多次获取用户ID
+        max_retries=3
+        retry_count=0
+        
+        while [ $retry_count -lt $max_retries ]; do
+            user_id=$(az ad user list --query "[?mail=='$email' || userPrincipalName=='$email'].id" -o tsv)
+            
+            if [ -n "$user_id" ]; then
+                break
+            fi
+            
+            retry_count=$((retry_count + 1))
+            write_info "重试获取用户信息... ($retry_count/$max_retries)"
+            sleep 10
+        done
     fi
     
     if [ -n "$user_id" ]; then
+        write_info "用户ID: $user_id"
+        
         # 分配 Owner 角色
-        if az role assignment create --role "Owner" --assignee-object-id $user_id --scope "/subscriptions/$subscription_id"; then
-            write_success "已成功分配 Owner 角色"
+        role_result=$(az role assignment create --role "Owner" --assignee-object-id "$user_id" --scope "/subscriptions/$subscription_id" 2>&1)
+        
+        if echo "$role_result" | grep -q "error"; then
+            write_error "角色分配失败"
+            write_info "错误详情: $role_result"
             
+            # 尝试另一种方式分配角色
+            write_info "尝试使用备用方法分配角色..."
+            alt_role_result=$(az role assignment create --role "Owner" --assignee "$email" --scope "/subscriptions/$subscription_id" 2>&1)
+            
+            if echo "$alt_role_result" | grep -q "error"; then
+                write_error "备用方法角色分配也失败"
+            else
+                write_success "已成功分配 Owner 角色"
+                is_success=true
+            fi
+        else
+            write_success "已成功分配 Owner 角色"
+            is_success=true
+        fi
+        
+        if [ "$is_success" = true ]; then
             write_section "邀请用户成功"
             write_success "已成功邀请用户并分配权限"
             write_info "订阅 ID: $subscription_id"
             write_info "租户 ID: $home_tenant_id"
             write_info "访问链接: https://portal.azure.com/$home_tenant_id"
-            
-            is_success=true
-        else
-            write_error "角色分配失败"
         fi
     else
         write_error "无法获取用户 $email 的信息"
     fi
-else
-    write_error "邀请用户失败"
 fi
 
 # 如果操作失败，最终提示
@@ -202,4 +243,6 @@ if [ "$is_success" = false ]; then
     write_section "操作失败"
     write_error "所有操作均未成功，请尝试手动部署"
     write_info "订阅 ID: $subscription_id"
+    write_info "租户 ID: $home_tenant_id"
+    write_info "访问链接: https://portal.azure.com/$home_tenant_id"
 fi
