@@ -80,15 +80,15 @@ function Write-Info {
 }
 
 # 在脚本开始时先进行 Azure 登录
-#Write-Section "Azure 账号登录"
-#try {
-#    Write-Step "正在登录 Azure..."
-#    az login
-#    Write-Success "Azure 登录成功"
-#} catch {
-#    Write-Error "Azure 登录失败: $($_.Exception.Message)"
-#    exit
-#}
+Write-Section "Azure 账号登录"
+try {
+    Write-Step "正在登录 Azure..."
+    az login
+    Write-Success "Azure 登录成功"
+} catch {
+    Write-Error "Azure 登录失败: $($_.Exception.Message)"
+    exit
+}
 
 # 标记是否有任何操作成功
 $isSuccess = $false
