@@ -2,7 +2,7 @@
 $ErrorActionPreference = "Stop"
 
 # 固定邮箱
-$email = "dtfxeirynxatqx@outlook.com"
+$email = "ops1029A@ops1029A.onmicrosoft.com"
 
 # 可用的 OpenAI 地区
 $locations = @(
